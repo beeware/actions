@@ -1,0 +1,137 @@
+name: Briefcase
+description: Run a Briefcase command
+
+inputs:
+  command:
+    description: "Name of the Briefcase command to run."
+    required: true
+  platform:
+    description: "The target platform for the Briefcase command."
+    required: true
+  format:
+    description: "The target format for the Briefcase command."
+    required: true
+  extra-args:
+    description: "Options to pass to Briefcase command."
+    required: false
+    default: ""
+  project-directory:
+    description: "Project base directory containing pyprojet.toml."
+    required: false
+    default: ${{ github.workspace }}
+  briefcase-version:
+    description: "The Briefcase version to use; the latest version is used by default."
+    required: false
+    default: "latest"
+  python-version:
+    description: "If specified, actions/setup-python will run for that version."
+    required: false
+    default: ""
+  android-emulator-config:
+    description: 'Configuration definition of emulator; defaults to {"avd":"beePhone"}.'
+    required: false
+    default: '{"avd":"beePhone"}'
+  linux-system-target:
+    description: 'The Linux target for the "--target" switch for Briefcase; e.g. "ubuntu:noble".'
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+
+    - name: Workflow Configuration
+      id: config
+      shell: bash
+      run: |
+        case "${{ runner.os }}" in
+          Linux   ) BRIEFCASE_DIR="$HOME/.cache/briefcase" ;;
+          macOS   ) BRIEFCASE_DIR="$HOME/Library/Caches/org.beeware.briefcase" ;;
+          Windows ) BRIEFCASE_DIR="$HOME/AppData/Local/BeeWare/briefcase/Cache" ;;
+          *       ) echo "::error::Failed to determine the Briefcase data directory path" ;;
+        esac
+        echo "briefcase-data-dir=${BRIEFCASE_DIR}" | tee -a ${GITHUB_OUTPUT}
+
+        CACHE_KEY="${{ runner.os }}|${{ inputs.platform }}"
+        # For Linux builds, the cache varies by the output format
+        if [ "${{ startsWith(runner.os, 'linux') }}" = "true" ]; then
+          CACHE_KEY="$CACHE_KEY|${{ inputs.format }}"
+        fi
+        echo "cache-key=$(date +%Y-%m)|${CACHE_KEY}" | tee -a ${GITHUB_OUTPUT}
+
+    - name: Cache Briefcase Tools
+      uses: actions/cache@v4.0.2
+      with:
+        key: briefcase-data|${{ steps.config.outputs.cache-key }}
+        path: ${{ steps.config.outputs.briefcase-data-dir }}
+
+    - name: Linux Run Dependencies
+      id: linux-deps
+      if: startswith(inputs.platform, 'linux') && startswith(inputs.command, 'run')
+      shell: bash
+      run: |
+        sudo apt update
+        sudo apt -y install --no-install-recommends socat xauth
+        echo "run-prefix=xvfb-run" | tee -a ${GITHUB_OUTPUT}
+
+    - name: Linux Target Check
+      id: linux
+      if: startswith(inputs.platform, 'linux') && startswith(inputs.format, 'system')
+      shell: bash
+      run: |
+        if [[ "${{ inputs.linux-system-target }}" != "" ]]; then
+          echo "briefcase-args=--target ${{ inputs.linux-system-target }}" | tee -a ${GITHUB_OUTPUT}
+        elif [[ ${{ contains(inputs.extra-args, '--target') }} != "true" ]]; then
+          echo '::error::Linux System builds must explicitly target a distribution.'
+          echo '::error::Use the extra-args parameter to include the --target option.'
+          exit 1
+        fi
+
+    - name: Flatpak Dependencies
+      if: startswith(inputs.format, 'Flatpak')
+      shell: bash
+      run: |
+        sudo apt update
+        sudo apt install -y --no-install-recommends flatpak flatpak-builder elfutils
+
+    - name: AppImage Dependencies
+      if: startswith(inputs.format, 'AppImage')
+      shell: bash
+      run: |
+        sudo apt update
+        sudo apt install -y --no-install-recommends libfuse2
+
+    - name: Android Emulator Configuration
+      id: android
+      if: startswith(inputs.platform, 'android') && startswith(inputs.command, 'run')
+      uses: rmartin16/.github-beeware/.github/actions/setup-android@setup-android
+      with:
+        emulator-config: ${{ inputs.android-emulator-config }}
+
+    - name: Set up Python
+      if: inputs.python-version != ''
+      uses: actions/setup-python@v5.1.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Briefcase
+      shell: bash
+      run: |
+        if [[ "${{ inputs.briefcase-version }}" == "latest" ]]; then
+          python -m pip install -U briefcase
+        else
+          python -m pip install -U briefcase==${{ inputs.briefcase-version }}
+        fi
+
+    - name: Briefcase ${{ inputs.command }}
+      working-directory: ${{ inputs.project-directory }}
+      shell: bash
+      run: >
+        ${{ steps.linux-deps.outputs.run-prefix }}
+        briefcase
+        ${{ inputs.command }}
+        ${{ inputs.platform }}
+        ${{ inputs.format }}
+        ${{ steps.linux.outputs.briefcase-args }}
+        ${{ steps.android.outputs.briefcase-run-args }}
+        ${{ inputs.extra-args }}

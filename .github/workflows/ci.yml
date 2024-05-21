@@ -23,3 +23,97 @@ jobs:
     uses: beeware/.github/.github/workflows/pre-commit-run.yml@main
     with:
       pre-commit-source: pre-commit
+
+  briefcase-actions:
+    name: Briefcase Actions
+    needs: [ "pre-commit" ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { platform: "Linux", format: "system" }
+          - { platform: "Linux", format: "Flatpak" }
+          #- { platform: "Linux", format: "AppImage" }
+          - { platform: "Windows", format: "app" }
+          - { platform: "Windows", format: "VisualStudio" }
+          - { platform: "macOS", format: "app" }
+          - { platform: "macOS", format: "Xcode" }
+          - { platform: "iOS", format: "Xcode" }
+          - { platform: "Android", format: "Gradle" }
+        include:
+          - extra-args: ""
+            run-extra-args: ""
+            python-version: "3.X"
+          - target: { platform: "Linux", format: "system" }
+            os: "ubuntu-latest"
+            linux-system-target: "ubuntu:22.04"
+            python-version: ""
+          - target: { platform: "Linux", format: "Flatpak" }
+            os: "ubuntu-latest"
+          #- target: { platform: "Linux", format: "AppImage" }
+          #  os: "ubuntu-latest"
+          - target: { platform: "Windows", format: "app" }
+            os: "windows-latest"
+          - target: { platform: "Windows", format: "VisualStudio" }
+            os: "windows-latest"
+          - target: { platform: "macOS", format: "app" }
+            os: "macos-14"
+          - target: { platform: "macOS", format: "Xcode" }
+            os: "macos-14"
+          - target: { platform: "iOS", format: "Xcode" }
+            os: "macos-14"
+            run-extra-args: "--device 'iPhone SE (3rd generation)::iOS 17.5'"
+          - target: { platform: "Android", format: "Gradle" }
+            os: "ubuntu-latest"
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4.1.5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5.1.0
+        with:
+          python-version: "3.x"
+
+      - name: Install Briefcase
+        uses: beeware/.github/.github/actions/install-briefcase@main
+
+      - name: Create Test Project
+        id: create
+        uses: beeware/.github/.github/actions/app-create@main
+
+      - name: Build App
+        uses: ./briefcase/command
+        with:
+          command: build
+          platform: ${{ matrix.target.platform }}
+          format: ${{ matrix.target.format }}
+          extra-args: ${{ matrix.extra-args }}
+          project-directory: ${{ steps.create.outputs.project-path }}
+          python-version: ${{ matrix.python-version }}
+          briefcase-version: 0.3.18
+          linux-system-target: ${{ matrix.linux-system-target }}
+
+      - name: Test App
+        uses: ./briefcase/command
+        with:
+          command: run
+          platform: ${{ matrix.target.platform }}
+          format: ${{ matrix.target.format }}
+          extra-args: -ru --test ${{ matrix.extra-args }} ${{ matrix.run-extra-args }}
+          project-directory: ${{ steps.create.outputs.project-path }}
+          python-version: ${{ matrix.python-version }}
+          linux-system-target: ${{ matrix.linux-system-target }}
+
+      - name: Package App
+        uses: ./briefcase/command
+        with:
+          command: package
+          platform: ${{ matrix.target.platform }}
+          format: ${{ matrix.target.format }}
+          extra-args: -u --adhoc-sign ${{ matrix.extra-args }}
+          project-directory: ${{ steps.create.outputs.project-path }}
+          python-version: ${{ matrix.python-version }}
+          linux-system-target: ${{ matrix.linux-system-target }}
