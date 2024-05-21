@@ -1,2 +1,2 @@
 # actions
-Reusable Github Action templates for BeeWare 
+Reusable Github Action templates for BeeWare
