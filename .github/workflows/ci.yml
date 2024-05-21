@@ -18,9 +18,8 @@ env:
   FORCE_COLOR: "1"
 
 jobs:
-  pre-commit-update:
-    name: Update pre-commit
-    uses: beeware/.github/.github/workflows/pre-commit-update.yml@main
-    secrets: inherit
+  pre-commit:
+    name: Pre-commit checks
+    uses: beeware/.github/.github/workflows/pre-commit-run.yml@main
     with:
       pre-commit-source: pre-commit
